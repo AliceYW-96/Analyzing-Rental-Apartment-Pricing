@@ -1,0 +1,225 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+library(tidyverse)
+library(DataExplorer)
+library(psych)
+library(Hmisc)
+library(cowplot)
+library(corrr)
+library(leaflet)
+library(leaflet.extras)
+library(wesanderson)
+library(scales)
+library(MASS)
+library(GGally)
+library(ggpubr)
+```
+
+```{r}
+ApartmentData <- read_csv("Daegu_Real_Estate_data.csv")
+ApartmentData$HallwayType = as.factor(ApartmentData$HallwayType)
+ApartmentData$HeatingType = as.factor(ApartmentData$HeatingType)
+ApartmentData$AptManageType = as.factor(ApartmentData$AptManageType)
+ApartmentData$TimeToBusStop = factor(ApartmentData$TimeToBusStop, ordered=T, levels=c("0~5min", "5min~10min", "10min~15min"))
+ApartmentData$TimeToSubway = factor(ApartmentData$TimeToSubway, ordered=T, levels=c("0~5min", "5min~10min", "10min~15min", "15min~20min", "no_bus_stop_nearby"))
+ApartmentData$AgeWhenSold = as.integer(ApartmentData$YrSold - ApartmentData$YearBuilt)
+#ApartmentData$Sqf = ApartmentData$`Size(sqf)`
+
+#Clean Labels 
+ApartmentData$Parks = ApartmentData$`N_FacilitiesNearBy(Park)`
+ApartmentData$DepStore = ApartmentData$`N_FacilitiesNearBy(Dpartmentstore)`
+ApartmentData$SqrtPrice = sqrt(ApartmentData$SalePrice)
+ApartmentData$Sqf = ApartmentData$`Size(sqf)`
+ApartmentData$GroundParking = ApartmentData$`N_Parkinglot(Ground)`
+ApartmentData$BasementParking = ApartmentData$`N_Parkinglot(Basement)`
+ApartmentData$TotalParking = ApartmentData$GroundParking + ApartmentData$BasementParking
+ApartmentData$TotalSchools = ApartmentData$`N_SchoolNearBy(Total)`
+ApartmentData$TotalFacilities = ApartmentData$`N_FacilitiesNearBy(Total)`
+ApartmentData$Elevator = ApartmentData$N_elevators
+ApartmentData$NApt = ApartmentData$N_APT
+ApartmentData$Managers = ApartmentData$N_manager
+ApartmentData$Ammenities = ApartmentData$N_FacilitiesInApt
+
+glimpse(ApartmentData)
+```
+
+Why do we have two sets of data?
+1. ApartmentData is used for EDA because it contains every column of the original dataset. Notice, we
+added a bunch more redundency columns for cleaner column names.
+2. CleanApartmentData is used for making correlation matrix and model fitting because it has clean
+column names.
+
+```{r}
+# Purely for readable lablels. No data cleanning here.
+CleanApartmentData <- cbind.data.frame(ApartmentData$SqrtPrice, ApartmentData$YearBuilt, ApartmentData$YrSold, ApartmentData$AgeWhenSold, ApartmentData$Sqf, ApartmentData$Floor, ApartmentData$HallwayType, ApartmentData$HeatingType, ApartmentData$AptManageType, ApartmentData$Managers, ApartmentData$Elevator, ApartmentData$NApt, ApartmentData$Ammenities, ApartmentData$TimeToBusStop, ApartmentData$TimeToSubway, ApartmentData$SubwayStation, ApartmentData$Parks, ApartmentData$DepStore, ApartmentData$TotalFacilities, ApartmentData$TotalSchools, ApartmentData$GroundParking, ApartmentData$BasementParking, ApartmentData$TotalParking, ApartmentData$'N_SchoolNearBy(University)')
+
+# 24 column names
+colnames(CleanApartmentData) <- c("SqrtPrice", "YrBuilt", "YrSold", "AgeWhenSold", "ApartmentSize", "Floors", "HallwayType", "HeatingType", "ManagementType", "Managers", "Elevators", "TotalApts", "Ammenities", "TimeToBusStop", "TimeToSubway", "SubwayStation", "Parks", "DepStores", "TotalFacilities", "TotalSchools", "GroundParking", "BasementParking", "TotalParking","University")
+
+glimpse(CleanApartmentData)
+```
+
+```{r}
+#Comparison in Plots
+s1 = ggplot(ApartmentData, aes(x=Sqf, y=SalePrice)) +
+  geom_jitter(color="dark blue") + 
+  geom_smooth(formula=y~x, method=lm, color="red", level=0.95, se=FALSE)
+
+# right semi sqrt
+s2 = ggplot(ApartmentData, aes(x=Sqf, y=sqrt(SalePrice))) +
+  geom_jitter(color="dark blue") + 
+  geom_smooth(formula=y~x, method=lm, color="red", level=0.95, se=FALSE)
+
+# sqrt-sqrt
+s3 = ggplot(ApartmentData, aes(x=sqrt(Sqf), y=sqrt(SalePrice))) +
+  geom_jitter(color="dark blue") + 
+  geom_smooth(formula=y~x, method=lm, color="red", level=0.95, se=FALSE)
+
+# right semi sqrt
+s4 = ggplot(ApartmentData, aes(x=sqrt(Sqf), y=SalePrice)) +
+  geom_jitter(color="dark blue", position="jitter") + 
+  geom_smooth(formula=y~x, method=lm, color="red", level=0.95, se=FALSE)
+
+ggarrange(s1, s2, s3, s4, nrow=2, ncol=2) + ggtitle("Transformations of price vs. APT size")
+```
+
+```{r}
+# Sqf vs. SQRT(price) vs. HallwayType ====
+ggplot(ApartmentData, aes(x=Sqf, y=sqrt(SalePrice), color = HallwayType)) +
+  geom_point(position="jitter", size=1, alpha=0.9) + 
+  geom_smooth(formula=y~x, method=lm, level=0.95) +
+  ggtitle("SQRT Price vs. apartment size (sq. ft.)")
+```
+```{r}
+ggplot(ApartmentData, aes(x=YearBuilt, y= Sqf, color = HallwayType)) +
+  geom_point(position="jitter", size=1, alpha=0.9) + 
+  geom_smooth(formula=y~x, method=lm, level=0.95) +
+  ggtitle("Year built vs. apartment size (sq. ft.)")
+```
+
+```{r}
+ggplot(ApartmentData, aes(x=YearBuilt, y=sqrt(SalePrice), color = HallwayType)) +
+  geom_point(position="jitter", size=1, alpha=0.9) + 
+  geom_smooth(formula=y~x, method=lm, level=0.95)
+```
+
+
+```{r}
+#YrS vs. Price color Hallway (Relevant) ====
+ggplot(ApartmentData, aes(x=YrSold, y=sqrt(SalePrice), color = HallwayType)) +
+  geom_jitter() + 
+  geom_smooth(formula=y~x, method=lm, color="red", level=0.95, se=FALSE)
+```
+
+```{r}
+# YrS vs. SQRT(price) vs. subwaystation
+ggplot(ApartmentData, aes(x=YrSold, y=SqrtPrice, color = SubwayStation)) +
+  geom_jitter(size=0.7, alpha=0.6) + 
+  geom_smooth(formula=y~x, method=lm, level=0.95, se=F) +
+  ggtitle("SQRT Price vs. year sold")
+```
+
+
+```{r}
+#AgeWhenSold ScatterPlot Vs Price Vs Hallway Type (Relevant) ====
+ggplot(ApartmentData, aes(x=AgeWhenSold, y=sqrt(SalePrice), color = HallwayType)) +
+  geom_point(size=1, position="jitter") + 
+  geom_smooth(method=lm) +
+  ggtitle("SQRT price vs. age when sold")
+```
+
+```{r}
+#Floor Variable As Raw (Right Skew)
+fl1 = ggplot(ApartmentData, aes(x = Floor)) + 
+  geom_histogram(aes(y =..density..), colour = "white", fill = "grey", bins = 25) +
+  geom_density(alpha = .2, fill = "blue") +
+  ggtitle('Histogram of Floor')
+
+#Floor Variable As Sqrt (More Normal)
+fl2 = ggplot(ApartmentData, aes(x = sqrt(Floor))) + 
+  geom_histogram(aes(y =..density..), colour = "white", fill = "grey", bins = 25) +
+  geom_density(alpha = .2, fill = "blue") +
+  ggtitle('Histogram of SQRT(Floor)')
+
+#QQ plot Floor raw (right skew)
+fl3 = ggplot(ApartmentData, aes(sample=Floor)) +
+  stat_qq(color='dark blue') +
+  stat_qq_line(color='red') +
+  ggtitle('QQ Plot for Floor') +
+  ylab('Ordered Values')
+
+#QQ plot SQRT(Floor) (light tailed)
+fl4 = ggplot(ApartmentData, aes(sample=sqrt(Floor))) +
+  stat_qq(color='dark blue') +
+  stat_qq_line(color='red') +
+  ggtitle('QQ Plot for SQRT(Floor)') +
+  ylab('Ordered Values')
+
+# Floor trans. ====
+ggarrange(fl1, fl3, fl2, fl4, ncol=2, nrow=2)
+```
+
+```{r}
+#Floor Vs Price Vs Hallway Type (Relevant) ====
+ggplot(ApartmentData, aes(x=Floor, y=sqrt(SalePrice), color = HallwayType)) +
+  geom_point(position="jitter", size=1, alpha=0.9) + 
+  geom_smooth(formula=y~x, method=lm, level=0.95) +
+  ggtitle("SQRT Price vs. Floor")
+```
+
+```{r}
+#NAPT Vs Price Vs Hallway Type (Relevant) ====
+ggplot(ApartmentData, aes(x=NApt, y=sqrt(SalePrice), color = HallwayType)) +
+  geom_jitter(size=0.7, alpha=0.7) + 
+  geom_smooth(formula=y~x, method=lm, level=0.95) +
+  ggtitle("SQRT sale price vs. number of apt buildings")
+```
+
+```{r}
+#Elevator Vs Price Vs Hallway Type (Relevant) ====
+ggplot(ApartmentData, aes(x=Elevator, y=sqrt(SalePrice), color = HallwayType)) +
+  geom_jitter(size=0.6, alpha=0.7) + 
+  geom_smooth(formula=y~x, method=lm, level=0.95, se=FALSE) +
+  ggtitle("SQRT sale price vs. elevator")
+```
+
+
+```{r}
+#Managers ScatterPlot Vs Price Vs Hallway Type (Relevant) ====
+ggplot(ApartmentData, aes(x=Managers, y=sqrt(SalePrice), color = HallwayType)) +
+  geom_jitter(size=0.7, alpha=0.8) + 
+  geom_smooth(formula=y~x, method=lm, level=0.95, se=FALSE)
+```
+
+
+```{r}
+#CORRELATIONS [PRICE MUST HAVE SQRT TRANSFORMATION, BUT LEAVE ALL OTHER VARIABLES AS IS] ====
+ApartmentData$SqrtPrice = sqrt(ApartmentData$SalePrice)
+
+#Correlation Matrix
+ggcorr(CleanApartmentData, hjust = 0.9, size = 2.2, label = TRUE, label_color = "black", label_size = 3, 
+       legend.position=c(0.1, 0.8))
+```
+
+```{r}
+# Adding quadratic size term
+CleanApartmentData$ApartmentSizeSquared = CleanApartmentData$ApartmentSize^2
+CleanApartmentData$SqrtFloors = CleanApartmentData$Floors
+```
+
+
+## Final Model Fit
+```{r}
+# Final model fit
+finalModel = lm(SqrtPrice~ApartmentSizeSquared+ApartmentSize*HallwayType+YrSold*SubwayStation+SqrtFloors+Ammenities+TotalFacilities, data = CleanApartmentData)
+summary(finalModel)
+paste("==== AIC score: ", AIC(finalModel))
+```
+
+## Model Performance
+```{r}
+plot(finalModel)
+```
